@@ -1,4 +1,4 @@
-from collections import namedtuple, defaultdict
+from collections import namedtuple, defaultdict, Counter
 import altair as alt
 import math
 import pandas as pd
@@ -62,4 +62,73 @@ def weeklytotals():
     st.write("Feburary 2020 has more than 60m weekly rides. By May 2022, we see a little over 30m.")
 
 
+def popularstations(year):
+    with conn:
+        with conn.cursor() as curs:
+            curs.execute(f"""
+            SELECT "START_DATE", "STATION", SUM("TOTAL")
+            FROM
+            (SELECT
+                "START_DATE",
+                "STATION", 
+                "TOTAL"
+            FROM
+                "paws/nyc-transit"."turnstile-activity"
+            ) s
+            WHERE to_date("START_DATE", 'MM/DD/YYYY') BETWEEN '{month}/1/{year}' AND '{month+1}/1/{year}'
+            GROUP BY "START_DATE", "STATION"
+            """)
+            stations_by_date = curs.fetchall()
+            
+    data = defaultdict(int)
+    for i in stations_by_date:
+        data[i[1]] += i[2]
+    sorted_data = dict(Counter(data).most_common(5))
+
+    source = pd.DataFrame({
+        'Station': [x for x in sorted_data.keys()],
+        'Activity': [x for x in sorted_data.values()]
+    })
+
+    st.altair_chart(
+        alt.Chart(source, title=f"{month}/{year}")
+        .mark_bar()
+        .encode(
+            x=alt.X("Station", scale=alt.Scale(nice=False)),
+            y=alt.Y("Activity:Q", title='Turnstile Activity', scale=alt.Scale(domain=[0, 15000000])),
+            tooltip=["Station", "Activity"],
+        )
+        .configure_mark(opacity=0.2, color="red")
+        .configure_title(fontSize=36),
+        use_container_width=True,
+    )
+
 weeklytotals()
+
+row2_1, row2_2 = st.columns((1,1))
+with row2_1:
+    st.write("""
+    ## Most popular stations year over year
+    """)
+with row2_2:
+    month = st.slider("Choose a month (Jan = 1, Feb = 2, etc. Stops at 5 b/c our data range stops May 2022)", min_value=1, max_value=5, )
+row3_1, row3_2, row3_3 = st.columns((1,1,1))
+with row3_1:
+    popularstations(2020)
+with row3_2:
+    popularstations(2021)
+with row3_3:
+    popularstations(2022)
+
+st.write("""
+## Summary 
+As of May 2022, subway ridership is slightly more than half of what it was pre-pandemic.
+
+14th Street, Grand Central, 34th Street Herald Square remain among the most popular stations.
+
+Ridership is growing and is higher in 2022 than 2021. However, its not where it was pre pandemic.
+""")
+
+
+## clean up DB connection
+conn.close()
